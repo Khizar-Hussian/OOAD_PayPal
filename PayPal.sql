@@ -15,14 +15,14 @@ create table Account
 create table AdminAccount
 (
 	adminId int identity(1,1) primary key,
-	actId int foreign key references Account(actId),
+	actId int foreign key references Account(actId) on update cascade,
 	privileges int,
 )
 
 -- creating user account table, it will hold both normi and business users
 create table UserAccount
 (
-	actId int primary key foreign key references Account(actId),
+	actId int primary key foreign key references Account(actId) on update cascade,
 	_address varchar(200),
 	_status varchar(100),
 	_type int,
@@ -75,10 +75,10 @@ create table Transactions
 	id int identity(1,1) primary key,
 	datePerformed date,
 	amount float,
-	invoiceId int foreign key references Invoice(invoiceId),
+	invoiceId int foreign key references Invoice(invoiceId) on delete set null on update cascade,
 	transStatus varchar(100),
 	instant bit,
-	shipmentID int foreign key references Shipment(shipmentId) null,
+	shipmentID int foreign key references Shipment(shipmentId) on delete set null on update cascade null,
 	beneficiary int foreign key references Account(actId),
 	benefactor int foreign key references Account(actId),
 	_type int
@@ -261,6 +261,19 @@ begin
 	select * from Transactions;
 end
 
+-- proc to delete a transaction using id
+go
+create proc deleteTransaction
+@transId int
+as
+begin
+	delete from Transactions
+	where id = @transId
+end
+
+
+
+
 -- proc to add a credit card
 go 
 create proc addCreditCard
@@ -338,21 +351,235 @@ begin
 	select @id = id
 	from monetaryReq
 	where reqId = @rId
+end
 
+-- proc to add report request
+go
+create proc addReportRequest
+@message varchar(200),
+@stat varchar(200),
+@requester int,
+@reported int,
+@admin int null,
+@response varchar(200),
+@id int out
+as 
+begin
+	insert into Request values (@message,@stat,@requester);
+	
+	declare @rId int
+	select @rId = reqId
+	from Request
+	where requester = @requester and _message = @message
+
+	insert into Report(reqId,response,adminAct,reportedAct) values (@rId,@response,@admin,@reported);
+	
+	select @id = id
+	from Report
+	where reqId = @rId	
+end
+
+
+
+-- proc to get a request by its id
+go
+create proc getRequest
+@reqId int
+as
+begin
+	if @reqId in (select reqId from monetaryReq)
+	begin
+		select *
+		from Request join monetaryReq on Request.reqId = monetaryReq.reqId
+		where Request.reqId=@reqId
+		return
+	end
+	else if @reqId in (select reqId from Report)
+	begin
+		select *
+		from Request as R join Report as Rp on R.reqId = Rp.reqId
+		where R.reqId=@reqId
+		return
+	end
+	else
+	begin
+		select *
+		from Request
+		where reqId=@reqId
+		return
+	end
+end
+ 
+ -- proc to get all requests of an account by acountId
+ go
+ create proc getallRequests
+ @actId int
+ as
+ begin
+	select *
+	from Request
+	where requester = @actId
+ end
+
+ -- proc to get all monetary requests of an account by accountId
+ go
+ create proc getallMonReq
+ @actId int
+ as
+ begin
+	select *
+	from Request as R join monetaryReq as M on R.reqId = M.reqId
+	where R.requester=@actId or M.requestee=@actId
+ end
+
+ -- proc to get all Reports of an account or by an account using account ID
+ go
+ create proc getAllReports
+ @actId int
+ as
+ begin
+	select *
+	from Request as R join Report as Rp on R.reqId = Rp.reqId
+	where requester = @actId or reportedAct = @actId
+ end
+
+ -- proc to delete a request
+ go
+ create proc deleteRequest
+ @reqId int
+ as
+ begin
+		if @reqId in (select reqId from monetaryReq)
+		begin
+			delete from monetaryReq
+			where reqId = @reqId;
+		end
+
+		else if @reqId in (select reqId from Report)
+		begin
+			delete from Report
+			where reqId	 = @reqId
+		end
+
+		delete from Request
+		where reqId = @reqId
+ end
+
+ -- procedure to generate a new invoice
+ go
+ create proc createInvoice
+ @bill float,
+ @dateGen date,
+ @receipt varchar(100),
+ @invId int out
+ as
+ begin
+	insert into Invoice values (@bill,@dateGen,@receipt);
+	select @invId = invoiceId
+	from Invoice
+	where bill=@bill and dateGen=@dateGen and receipt = @receipt
+ end
+
+ -- procedure to get all invoice of account using accountId
+ go
+ create procedure getAllInvoice
+ @actId int
+ as
+ begin
+	select Invoice.invoiceId,bill,dateGen as DateOfTransaction, receipt as Receipt
+	from Transactions join Invoice on Transactions.invoiceId = Invoice.invoiceId
+	where beneficiary = @actId or benefactor = @actId
+ end
+
+ -- proc to delete an invoice by InvoiceId
+ go
+ create proc deleteInvoice
+ @invId int
+ as 
+begin
+	delete from Invoice
+	where invoiceId = @invId
+end
+
+-- proc to delete an account by accountId
+go
+create proc deleteAccount
+@actId int
+as
+begin
+		if @actId in (select actId from AdminAccount)
+		begin
+			delete from AdminAccount
+			where actId = @actId
+		end
+		else if @actId in (select actId from UserAccount)
+		begin
+			delete from UserAccount
+			where actId = @actId
+		end
+
+		delete from Account
+		where actId =@actId
 end
 
 
 
 
-
 -- all test funcs
+
+
+exec deleteInvoice
+@invId=2;
+
+
+exec getAllInvoice
+@actId = 1;
+
+declare @iId int
+exec createInvoice
+@bill = 2500,
+@dateGen = '2019/11/4',
+@receipt = 'Xiami Airdots x1 at 2500rs',
+@invId = @iId out;
+select @iId
+
+
+exec getAllReports
+@actId = 1;
+
+exec getallMonReq
+@actId = 1;
+
+
+
+exec getallRequests
+@actId = 1;
+
+
+exec getRequest
+@reqId=3;
+
+
+declare @tid int
+exec addReportRequest
+@message ='bhae inko block kardo fake account hai',
+@stat = 'unresolved',
+@requester =2,
+@reported =1,
+@admin =1,
+@response = null,
+@id =@tid out
+select @tid
+
+
+
 declare @gId int
 exec addMonetaryRequest
-@message = 'yar 500 dedo',
+@message = 'Can i please get 100 for something urgent',
 @stat ='unresolved',
-@requester =1,
+@requester =2,
 @amount =500,
-@requestee = 2,
+@requestee = 1,
 @id =@gId out;
 select @gId
 
@@ -407,6 +634,8 @@ exec getAllCards
 exec removeCard
 @cardId =2
 
+exec deleteRequest
+@reqId = 3;
 
 
 
@@ -419,4 +648,4 @@ select * from CreditCard
 select * from UserCards
 select * from Request
 select * from monetaryReq
-
+select * from Report
